@@ -18,7 +18,11 @@ SHELL    := /bin/bash
 PDFLATEX := pdflatex
 GNUPLOT  := gnuplot
 
-all: $(TARGET).pdf
+#all: $(TARGET).pdf
+#	$(PDFLATEX) $<
+
+all:
+	$(PDFLATEX) $(TARGET)
 
 clean:
 	rm -f *.{aux,log,out,bbl,bcf,blg,run.xml} *~
@@ -32,8 +36,11 @@ view: $(TARGET).pdf
 bib: $(SRC)
 	biber $(TARGET)
 
-%.pdf: %.tex $(SRC)
+%.pdf:
 	$(PDFLATEX) $<
+
+#%.pdf: %.tex $(SRC)
+#	$(PDFLATEX) $<
 
 .SUFFIXES:
 .PRECIOUS: %.pdf
