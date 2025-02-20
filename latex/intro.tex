@@ -165,42 +165,51 @@
 \end{abstract}
 
 \section{Background}
-If you are familiar with \textit{machine learning} and
-\textit{sequence modeling}, then you can skip this section. This
-section covers the terminology and concepts used in the rest of the work.
+If you already know \textit{machine learning} and
+\textit{sequence modeling} well, then this section can be skipped. The
+purpose of this section is to 
+cover the terminology and concepts used in the work.
 
 \paragraph{Supervised machine learning.}
-The core supervised machine learning prolem is to find a model $f$ that
+The supervised machine learning problem is to find a model $f$ that
 maps inputs $x$ to outputs $y$
 \begin{equation}
   y = f(x) \enspace .
   \label{eq:supervisedML}
 \end{equation}
-Before the recent more powerful models of deep learning,
-the best neural model for supervised ML was the Multilayer Perception
-(MLP) neural network. An excellent introduction to MLPs and other
-methods of conventional machine learning is the Bishop's book from
-2006~\cite{MLBook}.
+The conventional methods for the ML problem are regression and classification.
+Before the recent deep learning methods,
+the most popular neural ML model was Multilayer Perceptron (MLP). The
+fundamental ideas and methods of conventional ML including MLPs are
+well covered in Bishop's ML book from 2006~\cite{MLBook}
+(available online).
 
-In the deep learning vocabulary, MLP is a
-stack of \textit{fully connected layers} and \textit{non-linear
-  activation functions} connecting the layers. MLP is trained by adjusting
-the model parameters, weights $\theta$, to minimize some error
-(\textit{loss function}). The standard loss is
-Mean Squared Error (MSE)
+Using the deep learning terminology, MLP is a neural network of
+\textit{fully connected layers} and \textit{non-linear activation
+  functions} (such as ReLU or Sigmoid) between them. Through the
+layers, MLP maps inputs $x$ to outputs $y$. Each neuron (\textit{unit}
+or \textit{kernel}) has weights which are the learnable
+parameters $\theta$ of the network. Network training is based on
+adjusting the weights so that some error (\textit{loss function})
+is minimized. The typical loss function for regression is the Mean
+Squared Error (MSE) and for classification Cross Entropy (CE). The MSE
+loss is defined
 \[
 \mathcal{L}_{MSE} = \sum_{i=1}^{K} (y_i-f_\theta (x))^2 \enspace .
 \]
-The MSE loss is computed for $K$ input-output pairs (\textit{training
-  data}). More formally, the optimization
-problem is
+
+
+The loss is computed for a set of $K$ input-output pairs, which is
+the \textit{training data}. Formally, the optimization is defined
+as
 \[
 \theta = \arg\min_{\theta} \mathcal{L}_{MSE} \enspace ,
 \]
-which can be iteratively optimized with the gradient descent
-algorithms (\textit{backpropagation}).
+and the standard technique for optimization is the Stochastic Gradient
+Descent (SGD) algorithm. The process of passing the loss gradient
+through the network is called \textit{error backpropagation}.
 
-A Torch-style code block for two-layer MLP network is 
+A Torch-style code block of a two-layer MLP network:
 \begin{lstlisting}
 .init(self, input_dim, hidden_size, output_dim):
         self.dense1 = torch.nn.Linear(input_dim, hidden_size)
@@ -217,76 +226,103 @@ A Torch-style code block for two-layer MLP network is
 \end{lstlisting}
 
 
-\paragraph{Sequence modeling.}
-A common example of sequence modeling
-is the problem of time series forecasting. An application of time
-series forecasting is stock price prediction. 
-The problem is to estimate the future values
-$\hat{x}_N, \hat{x}_{N+1}, \ldots, \hat{x}_{N+M}$ of a process
-from which some past values $x_0, x_{1}, \ldots, x_{N-1}$ are known.
-The hat symbol $\hat{\cdot}$ is used to distinguish between the true
-(ground-truth) and predicted values.
 
-In the ML formalism (\ref{eq:supervisedML}) the sequence
-modeling problem can be defined as
+\paragraph{Sequence modeling.}
+A problem domain where sequence modeling is used is time series
+forecasting. For example, forecasting future stock prices is a time
+series forecasting application. The problem can be defined as the
+problem of predicting the future values
+$\hat{x}_N, \hat{x}_{N+1}, \ldots, \hat{x}_{N+M}$ of a process
+from which past values $x_0, x_{1}, \ldots, x_{N-1}$ are known.
+The hat symbol $\hat{\cdot}$ is used to distinguish between the true
+(ground truth) and predicted values.
+
+An ML-compliant definition is to find the model $f_\theta$ so that
 \[
-\mathbf{Y} = f_\theta (\mathbf{X}) .
+\mathbf{Y} = f_\theta (\mathbf{X}) 
 \]
-However, the problem is that the size of $\mathbf{X}$ and $\mathbf{Y}$
-can vary but the network structure parameter 
-\texttt{input\_dim} and \texttt{output\_dim} must be predefined
-(Transformers do not have this limitation). An alternative approach is
-to use the previous element to predict the next sequence element
+and MLP can be used to find a model. The problem with the MLP model is
+that the length of the sequences $\mathbf{X}$ and $\mathbf{Y}$ can vary,
+but MLP must have a fixed number of inputs and outputs. For iterative
+forecasting, the number of outputs can be set to one, and the number
+of inputs can be 'big enough', and if the input sequence is
+shorter than the maximum limit, \textit{padding inputs} are added.
+However, such a network grows rapidly for an increasing number of
+inputs and soon becomes useless for practical applications where only
+a limited number of training samples are available.
+
+The number of inputs can be reduced, only one past example being the
+limit. In this case, the MLP learns the mapping
 \[
-x_{n+1} = f_\theta (x_{n}) .
+x_{n+1} = f_\theta (x_{n}) \enspace ,
 \]
-However, this naïve approach does not work very well. For example, it
-cannot model sinusoidal signals since the same point (e.g. zero) is
-'visited' on the both falling and raising edges of the sinusoidal. One
-option is to add multiple previous outputs, but there are better
-neural models than that. 
+but this naïve approach does not work very well. For example, it
+cannot model sinusoidal signals since each value except 0 and 1
+appears in two ’contexts'; the raisin and falling edges of the wave.
+t the same time, it is well known that some problems need to address
+both short and long-horizon dependencies to predict the next value.
+This problem can be solved by Recurrent Neural Networks (RNNs), in
+theory, and by Transformers, in practice.
+
 
 \paragraph{Sequence-to-sequence (Seq2Seq) modeling.}
-In the neural networks literature, Seq2Seq models are related to
-Recurrent Neural Networks (RNNs). RNNs maintain a system 'state' $h_t$
-that contain information about 'what has been produced so far'. Again,
-in the MLP terms this is a model of the type
+In the deep learning literature, Seq2Seq models are discussed with
+Recurrent Neural Networks (RNNs). The main difference between the MLP
+and RNN models is that RNNs maintain a system 'state' $h_t$ that is
+always passed forward to the next prediction. The RNN model can be
+defined as
 \[
-x_{n+1},h_{n+1} = f_\theta (x_{n},h_{n+1})
+x_{n+1},h_{n+1} = f_\theta (x_{n},h_{n+1}) \enspace .
 \]
-and perhaps the best known such structure is the Long Short-Term
-Memory (LSTM)~\cite{LSTM}. However, the original paper is rather
-tedious to follow. Instead, one should read the papers related to
-neural translation that progressed from RNNs to the transformer
-architecture.
 
-\citet{Sutskever-2014-neurips} is the best starting point to
-understand the ideas behind Transformer. They define the generic idea
-of machine translation where two RNNs form an encoder-decored
-structure. They use LSTM as the RNN model, but the architecture is
-general. The first LSTM (encoder) encodes the input sequence of $N$
-samples which is encoded into the last system state $h_{N}$. We assume
-that $h_0$ is the initial state, 'Start of Sequence' (SOS), and also after
-the first sample there can be similar 'End of Sequence' (EOS) state
-vector. The final encoder state is then used as the first state vector
-for the decoder in addition to the SOS vector. Output is read from the
-decoder until EOS appears.
+Theoretically, RNNs can have infinitely long 'memory', but in practice,
+that would mean that gradient information would be maintained over a
+long period of time, which is difficult with limited precision of
+computer arithmetics and time. 
 
-The same structure was used in~\cite{Cho-2014-emnlp}, but they also
-notified that such structure quickly 'forgets' past samples despite
-that infinite memory is theoretically possible. They introduced
-'attention' as mechanism to overcome this limitation. In their system
-all input states $h_i$ are stored, an attention weight is computed for
-all of them, and they are combined before delivering to the
-decoder. This attention mechanism is ofter referred to
-\textit{Bahdanau attention}.
+Many RNN architectures have been proposed, and one of the most popular
+is Long Short-Term Memory (LSTM)~\cite{LSTM}.
 
-Finally, the Transformer architecture was introduced
-in~\cite{transformer}. Its main motivation is to avoid the sequential
-processing of RNNs which makes optimization slow. Instead, they
-compute attention between the input sequence samples at the same time
-using matrix operations for which automatic differentation provides
-gradient.
+
+\paragraph{Transformer architecture.}
+To understand the design choices of the Transformer architecture, it
+can be beneficial to learn about the progression of RNNs in machine
+translation where one language is mapped to another
+(English-to-French). This Seq2Seq problem is more general than the
+time series forecasting since the type of input and output are
+different (English vs. French vocabulary).
+
+
+A very good work that describes the principled idea of using RNNs
+(LSTM) inmachine translation is~\cite{Sutskever-2014-neurips}.
+The encoder LSTM encodes the input sequence of $N$ into the state
+variable. In practice, that is the last state $h_n$ of the LSTM. Then
+the state vector is passed to the decoder LSTM that starts to generate
+output. The starts and ends of both sequences are encoded using
+special symbols Start-of-Sequence (SOS) and End-of-Sequence (EOS).
+
+A similar structure was used in~\cite{Cho-2014-emnlp}, which is a good
+read after~\cite{Sutskever-2014-neurips}. They note that such a
+structure quickly 'forgets' history and propose a mechanism that uses
+information from all past samples to infer the next prediction(s).
+This mechanism is \textit{attention}. In their model,  all past state
+vectors are stored, multiplied by \textit{attention weights}, and
+summed for the decoder. Similarly, the decoder can use its previous
+outputs via \textit{self-attention}. This approach can use all input samples in
+inference, but its main bottleneck is the sequential process of RNNs
+which makes training and inference slow. This attention mechanism is
+often referred to as \textit{Bahdanau attention}.
+
+Finally, after the two previous and influential works, the seminal
+Transformer paper ``Attention is All You Need'' is much easier to
+comprehend with all its flavors~\cite{transformer}. The most important
+idea is to avoid the sequential processing of RNNs. This is achieved
+by multiplicative attention that exploits the neural computation
+library (Torch, Keras) functions ability to automatically forward any
+number of inputs and backward the gradients from the loss function. In
+many ways, Transformer is more like clever software engineering than
+new AI theory.
+
 
 \section{Methods}
 
