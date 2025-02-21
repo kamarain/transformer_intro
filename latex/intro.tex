@@ -35,6 +35,7 @@
 
 % Own packages
 \usepackage{listings}
+\usepackage{amsmath}
 \usepackage[
     backend=biber,
     %style=authoryear-icomp,
@@ -163,6 +164,10 @@
   model. Simple sequences of zeros (0) and ones (1) are used to study
   the workings of each step.
 \end{abstract}
+
+\begin{center}
+\texttt{Jupyter notebook available at} \url{https://github.com/kamarain/transformer_intro}
+\end{center}
 
 \section{Background}
 If you already know \textit{machine learning} and
@@ -294,8 +299,8 @@ different (English vs. French vocabulary).
 
 
 A very good work that describes the principled idea of using RNNs
-(LSTM) inmachine translation is~\cite{Sutskever-2014-neurips}.
-The encoder LSTM encodes the input sequence of $N$ into the state
+(LSTM) in machine translation is~\cite{Sutskever-2014-neurips}.
+The encoder LSTM encodes the input sequence of $N$ inputs into the state
 variable. In practice, that is the last state $h_n$ of the LSTM. Then
 the state vector is passed to the decoder LSTM that starts to generate
 output. The starts and ends of both sequences are encoded using
@@ -326,20 +331,218 @@ new AI theory.
 
 \section{Methods}
 
+In the following sections, we incrementally add the essential
+components to the plain transformer and demonstrate how its
+capabilities gradually improve in Seq2Seq modeling.
+
+\subsection{Plain Transformer}
+\label{sec:PlainTransformer}
+
+At first, we investigate a model with a Transformer as its only
+processing layer.
+This model is referred to as \texttt{PlainTransformer}.
+The experimented transformer follows the original structure
+in~\cite{transformer}, and \texttt{torch.nn.Transformer} is selected
+as the reference implementation. The public implementation is tested
+by many users in the PyTorch community and hides all the
+implementation details making it straightforward to use.
+
+The only difference to the original work is feature normalization
+which is done \textit{before} the multiheaded attention.
+This is done by setting the initialization parameter
+\texttt{norm\_first = True}. This setting stabilizes training and no
+’heatup’ epochs with increasing learning rates are needed at the
+beginning of training.
+The change was proposed
+in~\cite{Xiong-2020-icml}, and we verified improved training
+convergence also in our experiments.
+
+A Torch compliant definition of \texttt{PlainTransformer} is
+\begin{lstlisting}
+class PlainTransformer(nn.Module):
+    def __init__(
+        self,
+        d_model,
+        nhead,
+        num_encoder_layers,
+        num_decoder_layers,
+        dim_feedforward,
+        dropout_p,
+        layer_norm_eps
+    ):
+        super().__init__()
+
+        # Transformer initialized with user specs
+        self.transformer = nn.Transformer(
+            d_model = d_model,
+            nhead = nhead,
+            num_encoder_layers = num_encoder_layers,
+            num_decoder_layers = num_decoder_layers,
+            dim_feedforward = dim_feedforward,
+            dropout = dropout_p,
+            layer_norm_eps = layer_norm_eps,
+            norm_first = True
+        )
+
+    def forward(
+        self,
+        src,
+        tgt,
+    ):
+        # Transformer assumes that src & tgt structure is (seq_length, batch_num, feat_dim)
+        out = self.transformer(src, tgt)
+
+        return out
+\end{lstlisting}
+
+An instance of the \texttt{PlainTransformer} model is constructed
+using minimal parameters
+\begin{lstlisting}
+model = SimplestTransformer(d_model = 1, nhead = 1, num_encoder_layers = 1,
+                            num_decoder_layers = 1, dim_feedforward = 8,
+                            dropout_p = 0.1, layer_norm_eps = 1e-05)
+\end{lstlisting}
+For the sake of some learning capacity, 8 units are used in the
+Transformer's feedforward layers. With a single unit the number of
+learnable parameters is 46, and with 8 units 88 parameters. The
+remaining 46 parameters are related to the normalization layers and
+other learnable operations.
+
+\paragraph{Training sequences.} For simplicity, we train the
+transformer with data where the input is repeated in the output:
+\begin{displaymath}
+  \begin{split}
+    \mathbf{X}: 0,0,0,0 \rightarrow \mathbf{Y}: 0,0,0,0\\
+    \mathbf{X}: 1,1,1,1 \rightarrow \mathbf{Y}: 1,1,1,1
+  \end{split}
+\end{displaymath}
+Despite that there are only two sample sequences, 50 of each and the total of
+100 samples were generated for training.
+
+\paragraph{Results.} PlainTransformer was trained for 300 epochs using
+the Adam optimizer with the learning rate set to $0.01$. The final
+loss was $0.5$. The converged model was experimented using the
+training inputs and outputs, and it produced the following output:
+\begin{displaymath}
+  \begin{split}
+    \mathbf{X}: 0,0,0,0 \rightarrow \hat{\mathbf{Y}}: 0.5,0.5,0.5,0.5\\
+    \mathbf{X}: 1,1,1,1 \rightarrow \hat{\mathbf{Y}}: 0.5,0.5,0.5,0.5\\
+  \end{split}
+\end{displaymath}
+
+\paragraph{Findings.} The transformer encoder is designed to
+``cross-correlate'' each input sequence sample with all other
+samples. This way the encoder outputs of each sample become aware of
+their context. Before the cross-correlated samples are transferred to
+the decoder, they go through linear mapping. The purpose of the
+mapping is to adjust input features to the output features (note that
+they could be of different types). The decoder performs similar
+cross-correlation between all inputs and produced outputs. This way
+each output feature becomes aware of all inputs and past and future
+outputs. Again, a linear mapping layer converts feature
+vectors to the space suitable for the loss function.
+
+In our case, the decoder outputs were directly used as the
+predictions. There are no non-linear mappings in the processing
+pipeline, and therefore the plain transformer converges to
+produce a single output that minimizes the error over training data. In
+the case of the equal amount of ones and zeros, the best single
+estimate is the mean (0.5).
+
+\subsection{Token embedding and un-embedding}
+
+From the results with \texttt{PlainTransformer} in
+Section~\ref{sec:PlainTransformer} it is clear that Transformer inputs
+and outputs should be used as \textit{embeddings} so that Transformer
+can alter them to produce compact feature descriptor of the input and
+output sequences.
+
+The Torch class \texttt{torch.Embedding()} can be used to form a
+lookup table with learnable parameters (the embedding vectors):
+\begin{lstlisting}
+class TokenTransformer(nn.Module):
+...
+
+        .__init__(...)
+        ...
+        # Token embedding layer - this takes care of converting integer ids to vectors
+        self.embedding = nn.Embedding(num_tokens, d_model)
+
+        # Token "unembedding" to one-hot encoded token vector
+        self.unembedding = nn.Linear(d_model, num_tokens)
+        ...
+        
+       .forward(...)
+       ...
+        # Note: src & tgt default size is (seq_length, batch_num, feat_dim)
+
+        # Token embedding
+        src = self.embedding(src) * math.sqrt(self.d_model)
+        tgt = self.embedding(tgt) * math.sqrt(self.d_model)        
+
+        # Transformer output
+        out = self.transformer(src, tgt)
+        out = self.unembedding(out)
+        
+        return out
+\end{lstlisting}
+The embedding vectors are multipled by the square root of feature
+dimension $\sqrt{D}$ to magnify them depending on the number of
+dimensions. The learnable parameters of the embedding increase the
+total number of learnable parameters from 88 to 1332 using the
+defaults of Torch implementations.
+
+\paragraph{Tokenization.} We need to decide 'tokens' used to represent
+our sequence. Tokens are integer values and the natural tokens are
+\begin{itemize}
+\item 0 for '0' and
+\item 1 for '1' .
+\end{itemize}
+In addition, we now add the Start-of-Sequence (SOS) and
+End-of-Sequence (EOS) tokens 
+\begin{itemize}
+\item 2 for SOS and
+\item 3 for EOS .
+\end{itemize}
+The total number of tokens to be embedded is 4, and the embedding
+vector dimension is the same as the Transformer internal model
+dimension.
+
+\paragraph{Training sequences.} In addition to the previous two
+sequences, two new sequence types are experimented,
+\begin{displaymath}
+  \begin{split}
+    \mathbf{X}: 0,0,0 \rightarrow \mathbf{Y}: 1\\
+    \mathbf{X}: 1,1,1 \rightarrow \mathbf{Y}: 0
+  \end{split}
+\end{displaymath}
+and
+\begin{displaymath}
+  \begin{split}
+    \mathbf{X}: 1 \rightarrow \mathbf{Y}: 0, 0, 0\\
+    \mathbf{X}: 0 \rightarrow \mathbf{Y}: 1, 1, 1
+  \end{split} \enspace
+\end{displaymath}
+i.e. long-to-one and one-to-long. New 100 samples are generated and
+therefore the total number of samples is now 200.
+
+\paragraph{Results.}
+
+\paragraph{Findings.}
+
 
 \begin{ack}
-This work would not be possible without tenure in Tampere
-University. My tenured position allows me to allocate time to projects
-that benefit society at large, or benefit nobody if they ideas just
-fail. I hope that you cite this work if you find it useful since that
-helps me to justify the time and efforts used for this writing this
-article and preparing the code examples.
+This work would not be possible without my tenure in Tampere
+University. This position allows me to allocate time to projects
+that interest myself and I want to share my findings to thank the
+academic society and Finnish government. If you find this article or
+related code useful, please cite this work (ArXiv link, author name,
+and the title).
 
-Universities are beautiful
-places and research, teaching, and supervising is the best I know, but
-I am afraid that blind believe in academic metrics and the corporate
-style management of universities will destroy these holy places of
-academic work.
+Universities all around the world are wonderful place for people like
+me. I hope that the corporation thinking and style of management will
+not destroy these institutes that were developed for more than one
+thousand years.
 \end{ack}
 
 \printbibliography
