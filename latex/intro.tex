@@ -36,6 +36,7 @@
 % Own packages
 \usepackage{listings}
 \usepackage{amsmath}
+\usepackage{graphicx}
 \usepackage[
     backend=biber,
     %style=authoryear-icomp,
@@ -408,7 +409,7 @@ learnable parameters is 46, and with 8 units 88 parameters. The
 remaining 46 parameters are related to the normalization layers and
 other learnable operations.
 
-\paragraph{Training sequences.} For simplicity, we train the
+\paragraph{Training sequences 1.} For simplicity, we train the
 transformer with data where the input is repeated in the output:
 \begin{displaymath}
   \begin{split}
@@ -508,7 +509,7 @@ The total number of tokens to be embedded is 4, and the embedding
 vector dimension is the same as the Transformer internal model
 dimension.
 
-\paragraph{Training sequences.} In addition to the previous two
+\paragraph{Training sequences 2.} Instead of the two previous
 sequences, two new sequence types are experimented,
 \begin{displaymath}
   \begin{split}
@@ -523,12 +524,123 @@ and
     \mathbf{X}: 0 \rightarrow \mathbf{Y}: 1, 1, 1
   \end{split} \enspace
 \end{displaymath}
-i.e. long-to-one and one-to-long. New 100 samples are generated and
-therefore the total number of samples is now 200.
+i.e. three-to-one and one-to-three. Again, 100 samples are generated.
 
 \paragraph{Results.}
+\texttt{TokenTransformer} was trained for epochs after which is acvieved the final loss 0.0013 for the three-to-one case and 0.4825 for the one-to-three case. Surprisingly, the model was able to learn the three-to-one
+\begin{verbatim}
+Example 0
+Input sequence: [1, 1, 1]
+Output (predicted) sequence: [0]
+
+Example 1
+Input sequence: [0, 0, 0]
+Output (predicted) sequence: [1]
+\end{verbatim}
+but it could not learn the one-to-three sequences
+\begin{verbatim}
+Example 2
+Input sequence: [1]
+Output (predicted) sequence: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+Example 3
+Input sequence: [0]
+Output (predicted) sequence: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+\end{verbatim}
+
 
 \paragraph{Findings.}
+The reason why the one-to-three case, on more generally many-to-many cases, cannot work is that training and inference are different. During training, TokenTransformer observes N inputs and M output all the time so its task is the following:
+\begin{displaymath}
+  \begin{split}
+    \mathbf{X}: SOS,1,EOS \rightarrow \mathbf{Y}: SOS,?, 0, 0,EOS\\
+    \mathbf{X}: SOS,1,EOS \rightarrow \mathbf{Y}: SOS,0, ?, 0,EOS\\
+    \mathbf{X}: SOS,1,EOS \rightarrow \mathbf{Y}: SOS,0, 0, ?,EOS\\
+  \end{split} \enspace
+\end{displaymath}
+while during inference when the future outputs are not known the task is
+\begin{displaymath}
+  \begin{split}
+    \mathbf{X}: SOS,1,EOS \rightarrow \mathbf{Y}: SOS,?\\
+    \mathbf{X}: SOS,1,EOS \rightarrow \mathbf{Y}: SOS,0, ?\\
+    \mathbf{X}: SOS,1,EOS \rightarrow \mathbf{Y}: SOS,0, 0, ?\\
+  \end{split} \enspace
+\end{displaymath}
+In other words, if the transformer is trained to always know the future it cannot work well in cases where the future is not known. Many-to-one case works as then inference is almost identical to training.
+
+\subsection{Sequence masking}
+To make training and inference identical, the output samples beyond the predicted one must be \textit{masked} during training. Note that with \texttt{torch.nn.Transformer} the outputs must be masked also during inference.
+
+The \texttt{torch.nn.Transformer} provides a static function
+\texttt{.generate\_square\_subsequent\_mask(seq\_len)} which gives the following ouput for the sequence lenght 5:
+\begin{verbatim}
+tensor([[0., -inf, -inf, -inf, -inf],
+        [0., 0., -inf, -inf, -inf],
+        [0., 0., 0., -inf, -inf],
+        [0., 0., 0., 0., -inf],
+        [0., 0., 0., 0., 0.]])
+\end{verbatim}
+For example, for the first inference round with output \texttt{2,1,1,1,3} and other tokens except \texttt{2} are masked. Then the predicted output is added to the list and all but \texttt{2, pred1} are masked until the transformer generates the end token. The \texttt{torch.nn.Transformer} generates the same number of predictins as the number of outputs. The only 'new' prediction is the last predicted element. 
+
+\texttt{TokenTransformer} with masking, referred to as \texttt{MaskedTokenTransformer} is otherwise exactly the same, but masking support is added to the \texttt{forward()} function.
+\begin{lstlisting}
+class MaskedTokenTransformer(nn.Module):
+       ...
+      .forward(
+       ...
+       tgt_mask = None):
+
+       ...
+       out = self.transformer(src, tgt, tgt_mask=tgt_mask)
+       ...
+\end{lstlisting}
+
+
+\paragraph{Results.}
+After 2000 epochs \texttt{MaskedTokenTransformer} obtains the final loss 0.1909 and learns one-to-many and many-to-one sequences correctly, for example
+\begin{verbatim}
+Example 2
+Input: [1]
+Continuation: [0, 0, 0]
+
+Example 3
+Input: [0]
+Continuation: [1, 1, 1]
+\end{verbatim}
+
+
+\paragraph{Training data 3.} Convinced by the success of \texttt{MaskedTokenTransformer} we try train it the following simple sequences which
+\begin{itemize}
+  \item 0,1,0,1 $\rightarrow$ 0,1,0,1
+  \item 1,0,1,0 $\rightarrow$ 1,0,1,0
+\end{itemize}
+
+Quite surprisingly after 2000 epochs and final loss of 0.1926 the \texttt{MaskedTokenTransformer} cannot learn the task byt produces
+\begin{verbatim}
+Example 0
+Input: [0, 1, 0, 1]
+Continuation: [1, 0]
+
+Example 1
+Input: [1, 0, 1, 0]
+Continuation: [1, 0]
+\end{verbatim}
+
+\paragraph{Findings.}
+The both input and output sequences in the training data 3 contain the same number of ones and zeros in different order. Since the Transformer model sums the embedded tokens it loses information of their position and therefore cannot learn this task.
+
+\subsection{Positional encoding}
+The last essential element to make the Transformer structure to solve any Seq2Seq task is to add positional encoding so that the transformer knows when the input and output tokens occurred during training.
+
+We add positional encoding as suggested in the original Transformer paper~\cite{transformer}. Sin and cos functions are used to generate vectors that are added to each embedding vector before processing. Example encoding vectors are shown in Figure~\ref{fig:posencoding}.
+
+\begin{figure}[h]
+  \begin{center}
+  \includegraphics[width=0.5\linewidth]{posencoding.png}
+  \caption{Positional encoding vectors for the position 1 (first) and 2 for 8-dimensional embedding vectors.}
+  \label{fig:posencoding}
+  \end{center}
+\end{figure}
 
 
 \begin{ack}
