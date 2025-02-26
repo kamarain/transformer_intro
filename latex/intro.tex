@@ -157,8 +157,7 @@
   transformer encoder-decoder structure. However, putting attention
   aside leaves several programming components that are easy to
   implement but whose role for the whole is unclear. These components
-  are 'tokenization', 'embedding' ('un-embedding'), 'masking', and
-  'positional encoding'. The focus of this work is on understanding
+  are 'tokenization', 'embedding' ('un-embedding'), 'masking', 'positional encoding', and 'padding'. The focus of this work is on understanding
   them. To keep things simple, the understanding is built
   incrementally by adding components one by one, and after each step
   investigating what is doable and what is undoable with the current
@@ -237,9 +236,9 @@ A Torch-style code block of a two-layer MLP network:
 A problem domain where sequence modeling is used is time series
 forecasting. For example, forecasting future stock prices is a time
 series forecasting application. The problem can be defined as the
-problem of predicting the future values
-$\hat{x}_N, \hat{x}_{N+1}, \ldots, \hat{x}_{N+M}$ of a process
-from which past values $x_0, x_{1}, \ldots, x_{N-1}$ are known.
+problem of predicting the future values 
+$\hat{\mathbf{Y}} = \left\{ \hat{x}_N, \hat{x}_{N+1}, \ldots, \hat{x}_{N+M} \right\}$of a process
+from which past values $\mathbf{X} = \left\{ x_0, x_{1}, \ldots, x_{N-1} \right\}$ are known.
 The hat symbol $\hat{\cdot}$ is used to distinguish between the true
 (ground truth) and predicted values.
 
@@ -264,27 +263,27 @@ x_{n+1} = f_\theta (x_{n}) \enspace ,
 \]
 but this naïve approach does not work very well. For example, it
 cannot model sinusoidal signals since each value except 0 and 1
-appears in two ’contexts'; the raisin and falling edges of the wave.
-t the same time, it is well known that some problems need to address
+appears in two ’contexts'; the raising and falling edges of the wave.
+At the same time, it is well known that some problems need to address
 both short and long-horizon dependencies to predict the next value.
 This problem can be solved by Recurrent Neural Networks (RNNs), in
 theory, and by Transformers, in practice.
 
 
 \paragraph{Sequence-to-sequence (Seq2Seq) modeling.}
-In the deep learning literature, Seq2Seq models are discussed with
+In the deep learning literature, Seq2Seq models are discussed in the context of
 Recurrent Neural Networks (RNNs). The main difference between the MLP
 and RNN models is that RNNs maintain a system 'state' $h_t$ that is
-always passed forward to the next prediction. The RNN model can be
+passed forward to the next prediction. The RNN model can be
 defined as
 \[
-x_{n+1},h_{n+1} = f_\theta (x_{n},h_{n+1}) \enspace .
+x_{n+1},h_{n+1} = f_\theta (x_{n},h_{n}) \enspace .
 \]
 
 Theoretically, RNNs can have infinitely long 'memory', but in practice,
-that would mean that gradient information would be maintained over a
-long period of time, which is difficult with limited precision of
-computer arithmetics and time. 
+that would mean that gradient information is maintained over a
+long period of time, which is difficult with limited precision of computing 
+and training time. 
 
 Many RNN architectures have been proposed, and one of the most popular
 is Long Short-Term Memory (LSTM)~\cite{LSTM}.
@@ -293,29 +292,28 @@ is Long Short-Term Memory (LSTM)~\cite{LSTM}.
 \paragraph{Transformer architecture.}
 To understand the design choices of the Transformer architecture, it
 can be beneficial to learn about the progression of RNNs in machine
-translation where one language is mapped to another
-(English-to-French). This Seq2Seq problem is more general than the
+translation where one language is mapped to another, such as
+English-to-French. This Seq2Seq problem is more general than the
 time series forecasting since the type of input and output are
 different (English vs. French vocabulary).
 
 
-A very good work that describes the principled idea of using RNNs
+An excellent work that describing the principle idea of using RNNs
 (LSTM) in machine translation is~\cite{Sutskever-2014-neurips}.
-The encoder LSTM encodes the input sequence of $N$ inputs into the state
-variable. In practice, that is the last state $h_n$ of the LSTM. Then
+An encoder LSTM encodes the input sequence of $N$ inputs into a single summary vector.
+In practice, the summary vector is the last state $h_n$ of the LSTM. Then
 the state vector is passed to the decoder LSTM that starts to generate
 output. The starts and ends of both sequences are encoded using
-special symbols Start-of-Sequence (SOS) and End-of-Sequence (EOS).
+special symbols: Start-of-Sequence (SOS) and End-of-Sequence (EOS).
 
-A similar structure was used in~\cite{Cho-2014-emnlp}, which is a good
-read after~\cite{Sutskever-2014-neurips}. They note that such a
-structure quickly 'forgets' history and propose a mechanism that uses
+A similar structure was used in~\cite{Cho-2014-emnlp}, which continues the story of~\cite{Sutskever-2014-neurips}. The authors noted that the LSTM encoder-decoder
+structure quickly forgets history, and propose a mechanism that uses
 information from all past samples to infer the next prediction(s).
 This mechanism is \textit{attention}. In their model,  all past state
 vectors are stored, multiplied by \textit{attention weights}, and
 summed for the decoder. Similarly, the decoder can use its previous
 outputs via \textit{self-attention}. This approach can use all input samples in
-inference, but its main bottleneck is the sequential process of RNNs
+inference. Them main bottleneck is the sequential process of RNNs
 which makes training and inference slow. This attention mechanism is
 often referred to as \textit{Bahdanau attention}.
 
@@ -586,11 +584,12 @@ In other words, the transformer is trained to ``see the future'', but during inf
 
 Future must be hidden from the transformer.
 
-\subsection{Sequence masking}
-To make training and inference identical, the output samples beyond the predicted one must be \textit{masked} during training. Note that with \texttt{torch.nn.Transformer} the outputs must be masked also during inference.
 
-The \texttt{torch.nn.Transformer} provides a static function
-\texttt{.generate\_square\_subsequent\_mask(seq\_len)} which gives the following ouput for the sequence lenght 5:
+\subsection{Sequence masking}
+To make the training and inference steps identical, the future output samples must be \textit{masked} during training so that they do not contribute to the decoder representation before they are observed.
+In the \texttt{torch.nn.Transformer} implementation, the target outputs must be masked also during inference.
+
+For output (target) masking, the \texttt{torch.nn.Transformer} class provides a static function \texttt{.generate\_square\_subsequent\_mask(seq\_len)} which gives the following output for the sequence length 5:
 \begin{verbatim}
 tensor([[0., -inf, -inf, -inf, -inf],
         [0., 0., -inf, -inf, -inf],
@@ -598,9 +597,11 @@ tensor([[0., -inf, -inf, -inf, -inf],
         [0., 0., 0., 0., -inf],
         [0., 0., 0., 0., 0.]])
 \end{verbatim}
-For example, for the first inference round with output \texttt{2,1,1,1,3} and other tokens except \texttt{2} are masked. Then the predicted output is added to the list and all but \texttt{2, pred1} are masked until the transformer generates the end token. The \texttt{torch.nn.Transformer} generates the same number of predictins as the number of outputs. The only 'new' prediction is the last predicted element. 
+The first row corresponds to the first iteration when only the first output is available for training or inference. For example, for the first inference round with the target output \texttt{2,1,1,1,3} all other tokens except \texttt{2} are masked. Then the predicted output is added to the list and all but \texttt{2, pred1} are masked in the second round. This continues until the EOS token is reached.
 
-\texttt{TokenTransformer} with masking, referred to as \texttt{MaskedTokenTransformer} is otherwise exactly the same, but masking support is added to the \texttt{forward()} function.
+The \texttt{torch.nn.Transformer} implementation in the training and inference modes generates the same number of predictions as in the target outputs. The predicted sequence corresponds to the target output shifted one step to the right (toward the future).
+
+\texttt{MaskedTokenTransformer} adds the masking operations to the \texttt{TokenTransformer}. This is done by adding support to the externally provided masks in the \texttt{forward()} function:
 \begin{lstlisting}
 class MaskedTokenTransformer(nn.Module):
        ...
@@ -615,7 +616,7 @@ class MaskedTokenTransformer(nn.Module):
 
 
 \paragraph{Results.}
-After 2000 epochs \texttt{MaskedTokenTransformer} obtains the final loss 0.1909 and learns one-to-many and many-to-one sequences correctly, for example
+After 2000 epochs \texttt{MaskedTokenTransformer} obtains the final loss 0.0654 and learns one-to-many and many-to-one sequences correctly, for example
 \begin{verbatim}
 Example 2
 Input: [1]
@@ -627,30 +628,25 @@ Continuation: [1, 1, 1]
 \end{verbatim}
 
 
-\paragraph{Training data 3.} Convinced by the success of \texttt{MaskedTokenTransformer} we try train it the following simple sequences which
+\paragraph{Training data.}
+To further study the limits of \texttt{MaskedTokenTransformer} let's try with the following training sequences:
 \begin{itemize}
   \item 0,1,0,1 $\rightarrow$ 0,1,0,1
   \item 1,0,1,0 $\rightarrow$ 1,0,1,0
 \end{itemize}
 
-Quite surprisingly after 2000 epochs and final loss of 0.1926 the \texttt{MaskedTokenTransformer} cannot learn the task byt produces
-\begin{verbatim}
-Example 0
-Input: [0, 1, 0, 1]
-Continuation: [1, 0]
-
-Example 1
-Input: [1, 0, 1, 0]
-Continuation: [1, 0]
-\end{verbatim}
+Surprisingly, the model cannot learn these sequences.
 
 \paragraph{Findings.}
-The both input and output sequences in the training data 3 contain the same number of ones and zeros in different order. Since the Transformer model sums the embedded tokens it loses information of their position and therefore cannot learn this task.
+Future masking solves the problems with previous training data examples, but the latest examples with the same symbols in different order cannot be solved.
+
+The problem is central to the Transformer attention which correlates each sample with all others. The correlation value is the same between same tokens despite their position. Therefore it is not possible to make the internal representation aware of in which order the samples were observed. For example, internally the sequences 0-1-0-1, 1-0-1-0, and even 1-1-0-0, 0-1-1-0, and 0-0-1-1, all produce the same representation.
+
 
 \subsection{Positional encoding}
-The last essential element to make the Transformer structure to solve any Seq2Seq task is to add positional encoding so that the transformer knows when the input and output tokens occurred during training.
+The last element to make the previous Transformer structure learn all previous sequences, and many more, is the \textit{positional encoding}. Positional encoding adds information about the token position to each embedding vector.
 
-We add positional encoding as suggested in the original Transformer paper~\cite{transformer}. Sin and cos functions are used to generate vectors that are added to each embedding vector before processing. Example encoding vectors are shown in Figure~\ref{fig:posencoding}.
+The adopted positional encoding is the one proposed in the original paper~\cite{transformer}. $\sin$ and $\cos$ functions are used to generate positional vectors added to token embedding vectors. Example position vectors are in Figure~\ref{fig:posencoding}.
 
 \begin{figure}[h]
   \begin{center}
@@ -660,7 +656,30 @@ We add positional encoding as suggested in the original Transformer paper~\cite{
   \end{center}
 \end{figure}
 
-\paragraph{Results.} The final Transformer model obtains the final loss of 0.0258 after 2000 epochs and outputs correct prediction:
+Positional encoding is added to the transformer model after the token embedding:
+\begin{lstlisting}
+class Seq2SeqTransformer(nn.Module):
+      ...
+  .init(...)
+      ...
+      self.positional_encoder = PositionalEncoding(d_model=d_model, dropout=dropout_p)
+      ...
+      
+   .forward(...):
+      ...
+      # Positional encoding - data must be seq len x batch num x feat dim
+        # Inference often misses the batch num
+        if src.dim() == 2: # seq len x feat dim
+            src = torch.unsqueeze(src,1) 
+        src = self.positional_encoder(src)
+        if tgt.dim() == 2: # seq len x feat dim
+            tgt = torch.unsqueeze(tgt,1) 
+        tgt = self.positional_encoder(tgt)
+       ...
+\end{lstlisting}
+
+
+\paragraph{Results.} The final Transformer model obtains the final loss of 0.0088 after 2000 epochs and outputs correct prediction:
 \begin{verbatim}
 Example 0
 Input: [0, 1, 0, 1]
@@ -671,7 +690,11 @@ Input: [1, 0, 1, 0]
 Continuation: [1, 0, 1, 0]
 \end{verbatim}
 
-\subsection{Padding}
+\paragraph{Findings.} The new model, \texttt{Seq2SeqTransformer}, has all the required elements implemented, and we demonstrated their importance with simple training sequences.
+
+As the final step, all previous sequences are trained to the transformer to verify its ability to learn all of them at the same time.
+
+\subsection{Token padding}
 The final step is to teach all above sequences to a single transformer model:
 \begin{itemize}
   \item 0,0,0,0 $\rightarrow$ 1,1,1,1
@@ -683,20 +706,75 @@ The final step is to teach all above sequences to a single transformer model:
   \item 0,1,0,1 $\rightarrow$ 0,1,0,1
   \item 1,0,1,0 $\rightarrow$ 1,0,1,0
 \end{itemize}
-The problem that the current model cannot handle is that sequences are of different length and they should be represented using training data matrices $\mathbf{X}$ and $\mathbf{Y}$ of fixed number of columns. 
+A problem the current model cannot handle is that sequences are of different lengths. There are two options, each sequence can be trained separately, which is inefficient, or dummy PAD tokens are added at the end of sequences that are shorter than the maximum length. If all sequences are approximately the same length, then the latter one is more efficient solution.
+
+\paragraph{Padding masks.} Additional trouble with padding is that similar to masking of future tokens, the PAD tokens must be masked during training. There are three \texttt{torch.nn.Transformer.forward()} parameters in which the mask tensors must be provided:
+\begin{itemize}
+  \item Input masking (\texttt{src\_key\_padding\_mask})
+  \item Output (target) masking (\texttt{tgt\_key\_padding\_mask})
+  \item Decoder memory masking (\texttt{memory\_key\_padding\_mask})
+\end{itemize}
+In most of the cases decoder memory mask is the same as input mask, i.e. it prevents the decoder to see PAD tokens in its 'memory'.
+
+\paragraph{Loss function.} A dummy embedding vector must be added for the padding token, and embedding informed that no gradient is computed for it:
+\begin{lstlisting}
+    self.embedding = nn.Embedding(num_tokens+1, d_model, padding_idx = self.padding_idx)
+\end{lstlisting}
+
+In addition, the loss function must be informed that errors in detecting the PAD tokens are ignored:
+\begin{lstlisting}
+  loss_fn = torch.nn.CrossEntropyLoss(ignore_index=PAD_IDX)
+\end{lstlisting}
+
+\paragraph{Results.} With 200 training samples (1/8 of each) and after 2000 epochs, the final loss is 0.1117 and \texttt{Seq2SeqTransformers} learns all Seq2Seq tasks correctly:
+\begin{verbatim}
+Example 0
+Input sequence: [0, 0, 0, 0]
+Output (predicted) sequence: [0, 0, 0, 0]
+
+Example 1
+Input sequence: [1, 1, 1, 1]
+Output (predicted) sequence: [1, 1, 1, 1]
+
+Example 2
+Input sequence: [1, 1, 1]
+Output (predicted) sequence: [0]
+
+Example 3
+Input sequence: [0, 0, 0]
+Output (predicted) sequence: [1]
+
+Example 4
+Input sequence: [0]
+Output (predicted) sequence: [1, 1, 1]
+
+Example 5
+Input sequence: [1]
+Output (predicted) sequence: [0, 0, 0]
+
+Example 6
+Input sequence: [0, 1, 0, 1]
+Output (predicted) sequence: [0, 1, 0, 1]
+
+Example 7
+Input sequence: [1, 0, 1, 0]
+Output (predicted) sequence: [1, 0, 1, 0]
+\end{verbatim}
+
+\section{Conclusions}
+The purpose of this work and accompanying Jupyter notebook for all examples is to familiarize one with the elements that are not part of the internal transformer structure but are essential to make it work. I hope you enjoy reading this article written in haste and the code written with great joy, and if you use any of them in your work I hope you cite this article in ArXiv.
 
 \begin{ack}
 This work would not be possible without my tenure in Tampere
-University. This position allows me to allocate time to projects
-that interest myself and I want to share my findings to thank the
-academic society and Finnish government. If you find this article or
-related code useful, please cite this work (ArXiv link, author name,
-and the title).
+University. This position allows me to allocate time to projects that interest me and sometimes I want to share my work and findings to thank the academic society and Finnish government. If you find this article or
+related code useful, please cite this work (provide the ArXiv link, author name, and the article title in your Web page or article).
 
-Universities all around the world are wonderful place for people like
-me. I hope that the corporation thinking and style of management will
-not destroy these institutes that were developed for more than one
+Universities all around the world are wonderful places for people like
+me. I hope that the corporative thinking and style of management will
+not destroy these institutes that have been developing for more than one
 thousand years.
+
+Keep on rockin' in the free world!
 \end{ack}
 
 \printbibliography
